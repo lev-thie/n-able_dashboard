@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>NOC-Wanddisplay Prototyp</title>
+<style>
+/* Layout: ein Bildschirm ohne Scrollen (16:9-Wanddisplay) – Kopfzeile, Kennzahlenband,
+   darunter drei Spalten: Server (N-able) | Probleme + Verlauf | Kundenstandorte (UniFi).
+   Bewusst nur dunkles Thema: Dauerbetrieb auf einem Wandbildschirm. */
+:root {
+  color-scheme: dark;
+  --bg: #0b0b0b;
+  --panel: #161616;
+  --panel-2: #1f1f1f;
+  --line: #303030;
+  --fg: #f5f5f5;
+  --muted: #9e9e9e;
+  --dim: #787878;
+  --accent: #ff614c;      /* Heras-Orange: nur Marke, nie Status */
+  --maroon: #7a2318;
+  --ok: #3cc9b0;
+  --warn: #f2b544;
+  --crit: #ff3d6e;
+  --off: #787878;
+  --series-cpu: #82acba;  /* Navy-Familie */
+  --series-ram: #2ba5a0;  /* Teal-Familie */
+  --font: Arial, "Helvetica Neue", Helvetica, sans-serif;
+}
+html { font-size: clamp(12px, 0.835vw, 26px); height: 100%; }
+body {
+  height: 100%; margin: 0; background: var(--bg); color: var(--fg);
+  font-family: var(--font); font-size: 1rem; line-height: 1.3;
+  font-variant-numeric: tabular-nums; overflow: hidden;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+/* ---------- Dashboard ---------- */
+.app {
+  height: 100%; display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: 0.9rem;
+  padding-block: 0 1rem;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.top { margin-inline: -1.25rem; }
+.top-inner {
+  display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;
+  padding: 0.9rem 1.25rem;
+}
+.brandbar { height: 0.3rem; background: linear-gradient(100deg, var(--accent), var(--maroon)); }
+.logo { height: 2rem; width: auto; display: block; }
+.logo-slot {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 2.2rem; padding: 0 1rem; border: 1px dashed var(--dim); border-radius: 0.2rem;
+  color: var(--muted); font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase;
+}
+.top h1 { margin: 0; font-size: 1.35rem; font-weight: 700; }
+.top .sub { color: var(--muted); font-size: 0.85rem; }
+.spacer { flex: 1 1 auto; }
+.feeds { display: flex; gap: 1.25rem; flex-wrap: wrap; font-size: 0.8rem; color: var(--muted); }
+.feed { display: flex; align-items: center; gap: 0.45rem; }
+.dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; background: var(--off); flex: none; }
+.dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); }
+.dot.crit { background: var(--crit); } .dot.off { background: var(--off); }
+.feed .dot.ok { animation: pulse 2.4s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.35; } }
+.demo {
+  font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase;
+  border: 1px solid var(--line); color: var(--muted); padding: 0.25rem 0.6rem; border-radius: 0.2rem;
+}
+.now { text-align: right; }
+.now .t { font-size: 1.9rem; font-weight: 700; line-height: 1; }
+.now .d { font-size: 0.8rem; color: var(--muted); margin-top: 0.2rem; }
+
+.kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.9rem; }
+.kpi { background: var(--panel); padding: 0.9rem 1.1rem; border-top: 0.2rem solid var(--line); min-width: 0; }
+.kpi.crit { border-top-color: var(--crit); } .kpi.warn { border-top-color: var(--warn); }
+.kpi.ok { border-top-color: var(--ok); }
+.kpi .l { font-size: 0.75rem; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; }
+.kpi .v { font-size: 2.6rem; font-weight: 700; line-height: 1.1; margin-top: 0.25rem; }
+.kpi .v small { font-size: 1.1rem; font-weight: 400; color: var(--muted); }
+.kpi .n { font-size: 0.8rem; color: var(--muted); }
+.kpi.crit .v { color: var(--crit); } .kpi.warn .v { color: var(--warn); }
+
+.main { display: grid; grid-template-columns: 1.5fr 1fr 1fr; gap: 0.9rem; min-height: 0; }
+.col { display: grid; gap: 0.9rem; min-height: 0; min-width: 0; }
+.col.mid { grid-template-rows: minmax(0, 1.5fr) minmax(0, 1fr); }
+.panel { background: var(--panel); display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.panel > header {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 1rem;
+  padding: 0.8rem 1.1rem; border-bottom: 1px solid var(--line);
+}
+.panel h2 { margin: 0; font-size: 1.05rem; font-weight: 700; }
+.panel .src { font-size: 0.75rem; color: var(--dim); white-space: nowrap; }
+.panel .body { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+
+/* Servertabelle */
+.rows { display: flex; flex-direction: column; height: 100%; }
+.row, .head {
+  display: grid; align-items: center; gap: 0.9rem; padding: 0 1.1rem;
+  grid-template-columns: 0.6rem minmax(0, 2.1fr) minmax(0, 1.2fr) 1fr 1fr 1fr 3.4rem;
+}
+.head { font-size: 0.7rem; color: var(--dim); letter-spacing: 0.07em; text-transform: uppercase; padding-block: 0.55rem; }
+.row { flex: 1 1 0; min-height: 2.6rem; border-top: 1px solid var(--line); }
+.row.crit { background: linear-gradient(90deg, rgba(255,61,110,0.13), transparent 45%); }
+.row.off { color: var(--muted); }
+.name { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.role { font-size: 0.75rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cust { color: var(--muted); font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meter { display: flex; align-items: center; gap: 0.5rem; }
+.meter .bar { flex: 1 1 auto; height: 0.4rem; background: var(--panel-2); min-width: 1.5rem; }
+.meter .bar i { display: block; height: 100%; background: var(--ok); transition: width 0.8s ease; }
+.meter .num { width: 2.9rem; text-align: right; font-size: 0.9rem; }
+.meter.warn .bar i { background: var(--warn); } .meter.warn .num { color: var(--warn); }
+.meter.crit .bar i { background: var(--crit); } .meter.crit .num { color: var(--crit); font-weight: 700; }
+.up { text-align: right; font-size: 0.85rem; color: var(--muted); white-space: nowrap; }
+.tag {
+  margin-left: 0.5rem; color: var(--crit); font-weight: 700;
+}
+.tag.warn { color: var(--warn); }
+.offline-note { grid-column: 4 / 8; font-size: 0.85rem; }
+
+/* Probleme */
+.issues { display: flex; flex-direction: column; height: 100%; }
+.issue {
+  flex: 1 1 0; min-height: 2.8rem; display: grid; grid-template-columns: 0.3rem minmax(0, 1fr) auto;
+  gap: 0.9rem; align-items: center; padding-right: 1.1rem; border-top: 1px solid var(--line);
+}
+.issue:first-child { border-top: 0; }
+.issue .stripe { align-self: stretch; background: var(--warn); }
+.issue.crit .stripe { background: var(--crit); }
+.issue .ti { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.issue .wh { font-size: 0.8rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.issue .since { text-align: right; font-size: 0.85rem; white-space: nowrap; }
+.issue .since span { display: block; font-size: 0.7rem; color: var(--dim); }
+
+/* Verlauf */
+.chart { height: 100%; padding: 0.4rem 0.6rem 0.4rem 0.4rem; }
+.chart svg { width: 100%; height: 100%; display: block; }
+.chart text { font-family: var(--font); }
+
+/* UniFi */
+.sites { display: flex; flex-direction: column; height: 100%; }
+.site, .sites .head {
+  display: grid; align-items: center; gap: 0.8rem; padding: 0 1.1rem;
+  grid-template-columns: 0.6rem minmax(0, 1.5fr) 3.8rem 3.4rem 4.2rem;
+}
+.site { flex: 1 1 0; min-height: 2.6rem; border-top: 1px solid var(--line); }
+.site.crit { background: linear-gradient(90deg, rgba(255,61,110,0.13), transparent 45%); }
+.site .r { text-align: right; font-size: 0.9rem; white-space: nowrap; }
+.sites .head .r { text-align: right; }
+.site .r.warn { color: var(--warn); } .site .r.crit { color: var(--crit); font-weight: 700; }
+
+/* ---------- Uhr-Modus ---------- */
+.clock {
+  position: fixed; inset: 0; background: #000; display: flex; align-items: center; justify-content: center;
+  padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px))
+           max(16px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+}
+.clock-inner { display: flex; flex-direction: column; align-items: center; gap: 2.2rem; transition: transform 4s ease; }
+.clock .logo { height: 5.5rem; }
+.clock .logo-slot { height: 5.5rem; padding: 0 3rem; font-size: 1rem; }
+.clock .rule { width: 9rem; height: 0.3rem; background: linear-gradient(100deg, var(--accent), var(--maroon)); }
+.clock .time { font-size: 13rem; font-weight: 700; line-height: 0.9; letter-spacing: -0.02em; }
+.clock .time .sec { font-size: 0.32em; font-weight: 400; color: var(--muted); margin-left: 0.15em; letter-spacing: 0; }
+.clock .date { font-size: 1.9rem; color: var(--muted); }
+.clock .hint { font-size: 0.9rem; color: var(--dim); }
+
+/* ---------- Vorschau-Umschalter (nur Prototyp) ---------- */
+.switch {
+  position: fixed; z-index: 20; display: flex; align-items: center; gap: 0.5rem;
+  right: max(12px, env(safe-area-inset-right, 0px)); bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  background: rgba(31,31,31,0.92); border: 1px solid var(--line); padding: 0.35rem 0.5rem;
+  font-size: 12px; color: var(--muted); opacity: 0.35; transition: opacity 0.2s;
+}
+.switch:hover, .switch:focus-within { opacity: 1; }
+.switch button {
+  font: inherit; color: var(--fg); background: transparent; border: 1px solid var(--line);
+  padding: 0.3rem 0.6rem; cursor: pointer;
+}
+.switch button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #000; font-weight: 700; }
+.switch button:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; }
+
+/* ---------- Schmale Bildschirme (Ansicht am Rechner/Handy) ---------- */
+@media (max-width: 1100px) {
+  html { font-size: 14px; }
+  body { overflow: auto; height: auto; }
+  .app { height: auto; padding-bottom: 4rem; }
+  .top { margin-inline: -16px; } .top-inner { padding-inline: 16px; gap: 0.8rem; }
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .main { grid-template-columns: minmax(0, 1fr); }
+  .col.mid { grid-template-rows: auto 16rem; }
+  .row, .head { grid-template-columns: 0.6rem minmax(0, 1.4fr) 1fr 1fr; }
+  .row > .cust, .row > .disk, .row > .up, .head > .h-cust, .head > .h-disk, .head > .h-up { display: none; }
+  .offline-note { grid-column: 3 / 5; }
+  .row, .issue, .site { flex: none; padding-block: 0.6rem; }
+  .clock .time { font-size: 22vw; } .clock .logo, .clock .logo-slot { height: 3.5rem; }
+  .clock .date { font-size: 1.2rem; text-align: center; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .feed .dot.ok { animation: none; } .meter .bar i, .clock-inner { transition: none; }
+}
+</style>
+</head>
+<body>
+
+<div class="app" id="dashboard">
+  <div class="top">
+    <div class="top-inner">
+      <span data-logo></span>
+      <div>
+        <h1>Netzwerk- und Serverüberwachung</h1>
+        <div class="sub">Gleich ITS GmbH · Betriebszeit Anzeige 07:30–17:00 Uhr</div>
+      </div>
+      <span class="demo">Beispieldaten</span>
+      <div class="spacer"></div>
+      <div class="feeds">
+        <div class="feed"><span class="dot ok"></span>N-able · vor <span id="age-nable">4</span> s</div>
+        <div class="feed"><span class="dot ok"></span>UniFi · vor <span id="age-unifi">21</span> s</div>
+      </div>
+      <div class="now"><div class="t" id="hdr-time">--:--</div><div class="d" id="hdr-date"></div></div>
+    </div>
+    <div class="brandbar"></div>
+  </div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="main">
+    <div class="col">
+      <section class="panel">
+        <header><h2>Server nach Dringlichkeit</h2><span class="src" id="srv-src"></span></header>
+        <div class="body"><div class="rows" id="servers"></div></div>
+      </section>
+    </div>
+    <div class="col mid">
+      <section class="panel">
+        <header><h2>Aktive Probleme</h2><span class="src" id="iss-src"></span></header>
+        <div class="body"><div class="issues" id="issues"></div></div>
+      </section>
+      <section class="panel">
+        <header><h2>Auslastung aller Server, letzte 60 min</h2><span class="src">Mittelwert in %</span></header>
+        <div class="body"><div class="chart" id="chart"></div></div>
+      </section>
+    </div>
+    <div class="col">
+      <section class="panel">
+        <header><h2>Kundenstandorte</h2><span class="src" id="site-src"></span></header>
+        <div class="body"><div class="sites" id="sites"></div></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<div class="clock" id="clock" hidden>
+  <div class="clock-inner" id="clock-inner">
+    <span data-logo></span>
+    <div class="rule"></div>
+    <div class="time"><span id="clk-hm">--:--</span><span class="sec" id="clk-s">--</span></div>
+    <div class="date" id="clk-date"></div>
+    <div class="hint">Dashboard wieder aktiv ab 07:30 Uhr</div>
+  </div>
+</div>
+
+<div class="switch" role="group" aria-label="Vorschau-Modus">
+  <span>Vorschau</span>
+  <button type="button" id="m-auto" data-mode="auto" aria-pressed="true">Automatisch</button>
+  <button type="button" id="m-dash" data-mode="dash" aria-pressed="false">Dashboard</button>
+  <button type="button" id="m-clock" data-mode="clock" aria-pressed="false">Uhr</button>
+</div>
+
+<script>
+(function () {
+  'use strict';
+  var TZ = 'Europe/Berlin';
+  var START_MIN = 7 * 60 + 30, END_MIN = 17 * 60;   // Anzeigezeit des Dashboards
+  var LOGO_SRC = 'assets/heras-logo-weiss.svg';     // weiße Logo-Variante für dunklen Grund
+
+  /* ---------- Logo: echte Datei laden, sonst markierter Platzhalter ---------- */
+  document.querySelectorAll('[data-logo]').forEach(function (slot) {
+    var ph = document.createElement('span');
+    ph.className = 'logo-slot'; ph.textContent = 'Logo-Platzhalter';
+    ph.title = 'Datei ' + LOGO_SRC + ' fehlt';
+    slot.appendChild(ph);
+    var img = new Image();
+    img.className = 'logo'; img.alt = 'Heras';
+    img.onload = function () { slot.replaceChild(img, ph); };
+    img.src = LOGO_SRC;
+  });
+
+  /* ---------- Beispieldaten (später: N-able GraphQL + UniFi Site Manager API) ---------- */
+  var servers = [
+    { n: 'LIN-SQL01', r: 'SQL Server',        c: 'Autohaus Lindner',       cpu: 34, ram: 62, disk: 71, up: '41 T',  svc: 2 },
+    { n: 'VOS-FS01',  r: 'Dateiserver',       c: 'Kanzlei Voss & Partner', cpu: 22, ram: 95, disk: 64, up: '112 T' },
+    { n: 'OTT-APP02', r: 'ERP-Applikation',   c: 'Maschinenbau Ottens',    cpu: 94, ram: 81, disk: 55, up: '18 T' },
+    { n: 'SEE-DC01',  r: 'Domain Controller', c: 'Hotel Seeblick',         off: 'Agent offline seit 42 min' },
+    { n: 'BRA-BKP01', r: 'Backup-Server',     c: 'Logistik Brandt GmbH',   cpu: 18, ram: 48, disk: 86, up: '63 T' },
+    { n: 'REI-TS01',  r: 'Terminalserver',    c: 'Praxis Dr. Reimers',     cpu: 41, ram: 82, disk: 58, up: '9 T', svc: 1, svcWarn: true },
+    { n: 'KRA-DC01',  r: 'Domain Controller', c: 'Steuerbüro Kranz',       cpu: 12, ram: 44, disk: 39, up: '36 T', reboot: true },
+    { n: 'HOL-EX01',  r: 'Exchange',          c: 'Bäckerei Hollmann',      cpu: 78, ram: 70, disk: 66, up: '22 T' },
+    { n: 'OTT-DC01',  r: 'Domain Controller', c: 'Maschinenbau Ottens',    cpu: 9,  ram: 38, disk: 42, up: '18 T' },
+    { n: 'FAB-RDS01', r: 'Terminalserver',    c: 'Immobilien Faber',       cpu: 46, ram: 64, disk: 51, up: '5 T' },
+    { n: 'WEI-FS01',  r: 'Dateiserver',       c: 'Architekturbüro Weide',  cpu: 15, ram: 52, disk: 68, up: '77 T' },
+    { n: 'SON-DC01',  r: 'Domain Controller', c: 'Pflegedienst Sonnenhof', cpu: 7,  ram: 35, disk: 33, up: '29 T' },
+    { n: 'ALB-DC01',  r: 'Domain Controller', c: 'Schreinerei Albers',     cpu: 11, ram: 41, disk: 47, up: '54 T' }
+  ];
+  servers.forEach(function (s) { s.cpu0 = s.cpu; s.ram0 = s.ram; });
+  var TOTAL_SERVERS = 48, HIDDEN_AVG = { cpu: 21, ram: 49 };
+
+  var issues = [
+    { sev: 'crit', t: 'Dienst gestoppt: MSSQLSERVER',     w: 'LIN-SQL01 · Autohaus Lindner',       s: '12 min', src: 'N-able', svc: 1 },
+    { sev: 'crit', t: 'Dienst gestoppt: SQLSERVERAGENT',  w: 'LIN-SQL01 · Autohaus Lindner',       s: '12 min', src: 'N-able', svc: 1 },
+    { sev: 'crit', t: 'CPU-Auslastung über 90 %',         w: 'OTT-APP02 · Maschinenbau Ottens',    s: '16 min', src: 'N-able' },
+    { sev: 'crit', t: 'RAM-Auslastung 95 %',              w: 'VOS-FS01 · Kanzlei Voss & Partner',  s: '28 min', src: 'N-able' },
+    { sev: 'crit', t: 'Standort offline (WAN)',           w: 'UDM Pro · Hotel Seeblick',           s: '42 min', src: 'UniFi' },
+    { sev: 'crit', t: 'Agent offline',                    w: 'SEE-DC01 · Hotel Seeblick',          s: '42 min', src: 'N-able' },
+    { sev: 'warn', t: 'WAN-Failover aktiv (LTE)',         w: 'UCG Max · Schreinerei Albers',       s: '35 min', src: 'UniFi' },
+    { sev: 'warn', t: 'Dienst gestoppt: Spooler',         w: 'REI-TS01 · Praxis Dr. Reimers',      s: '1 h',    src: 'N-able', svc: 1 },
+    { sev: 'warn', t: 'Datenträger D: 86 % belegt',       w: 'BRA-BKP01 · Logistik Brandt GmbH',   s: '3 h',    src: 'N-able' },
+    { sev: 'warn', t: 'Neustart ausstehend (Updates)',    w: 'KRA-DC01 · Steuerbüro Kranz',        s: '2 T',    src: 'N-able' }
+  ];
+
+  var sites = [
+    { c: 'Hotel Seeblick',         g: 'UDM Pro',     on: 0,  tot: 23, cl: 0,   wan: 'off' },
+    { c: 'Schreinerei Albers',     g: 'UCG Max',     on: 6,  tot: 6,  cl: 19,  wan: 'failover', ms: 48 },
+    { c: 'Logistik Brandt GmbH',   g: 'UDM SE',      on: 30, tot: 31, cl: 142, wan: 'ok', ms: 11 },
+    { c: 'Autohaus Lindner',       g: 'UDM Pro',     on: 18, tot: 18, cl: 87,  wan: 'ok', ms: 9 },
+    { c: 'Maschinenbau Ottens',    g: 'UDM Pro Max', on: 42, tot: 42, cl: 216, wan: 'ok', ms: 7 },
+    { c: 'Kanzlei Voss & Partner', g: 'UDM SE',      on: 9,  tot: 9,  cl: 34,  wan: 'ok', ms: 12 },
+    { c: 'Praxis Dr. Reimers',     g: 'UCG Ultra',   on: 5,  tot: 5,  cl: 22,  wan: 'ok', ms: 14 },
+    { c: 'Steuerbüro Kranz',       g: 'UCG Ultra',   on: 4,  tot: 4,  cl: 16,  wan: 'ok', ms: 10 },
+    { c: 'Bäckerei Hollmann',      g: 'UDM Pro',     on: 12, tot: 12, cl: 41,  wan: 'ok', ms: 16 },
+    { c: 'Immobilien Faber',       g: 'UCG Max',     on: 7,  tot: 7,  cl: 28,  wan: 'ok', ms: 8 },
+    { c: 'Architekturbüro Weide',  g: 'UCG Ultra',   on: 6,  tot: 6,  cl: 25,  wan: 'ok', ms: 13 },
+    { c: 'Pflegedienst Sonnenhof', g: 'UDM SE',      on: 15, tot: 15, cl: 63,  wan: 'ok', ms: 11 }
+  ];
+
+  /* ---------- Hilfen ---------- */
+  function $(id) { return document.getElementById(id); }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function level(v) { return v >= 90 ? 'crit' : v >= 75 ? 'warn' : ''; }
+  function srvState(s) {
+    if (s.off) return 'off';
+    if (s.cpu >= 90 || s.ram >= 90 || s.disk >= 90 || (s.svc && !s.svcWarn)) return 'crit';
+    if (s.cpu >= 75 || s.ram >= 75 || s.disk >= 75 || s.svc || s.reboot) return 'warn';
+    return 'ok';
+  }
+  function meter(v, cls) {
+    return '<div class="meter ' + level(v) + ' ' + (cls || '') + '"><div class="bar"><i style="width:' + v + '%"></i></div><div class="num">' + v + ' %</div></div>';
+  }
+  function avg(key) {
+    var live = servers.filter(function (s) { return !s.off; });
+    var sum = live.reduce(function (a, s) { return a + s[key]; }, 0);
+    var hidden = TOTAL_SERVERS - servers.length;
+    return Math.round((sum + hidden * HIDDEN_AVG[key]) / (live.length + hidden));
+  }
+
+  /* ---------- Rendern ---------- */
+  function renderServers() {
+    var html = '<div class="head"><span></span><span>Server</span><span class="h-cust">Kunde</span><span>CPU</span><span>RAM</span><span class="h-disk">Datenträger</span><span class="h-up" style="text-align:right">Laufzeit</span></div>';
+    servers.forEach(function (s) {
+      var st = srvState(s);
+      var tags = (s.svc ? '<span class="tag' + (s.svcWarn ? ' warn' : '') + '">' + s.svc + (s.svc > 1 ? ' Dienste' : ' Dienst') + ' gestoppt</span>' : '') +
+                 (s.reboot ? '<span class="tag warn">Neustart offen</span>' : '');
+      html += '<div class="row ' + (st === 'crit' || st === 'off' ? 'crit' : '') + (st === 'off' ? ' off' : '') + '">' +
+        '<span class="dot ' + (st === 'off' ? 'crit' : st) + '"></span>' +
+        '<div style="min-width:0"><div class="name">' + esc(s.n) + '</div><div class="role">' + esc(s.r) + tags + '</div></div>' +
+        '<div class="cust">' + esc(s.c) + '</div>' +
+        (s.off ? '<div class="offline-note">' + esc(s.off) + '</div>'
+               : meter(s.cpu) + meter(s.ram) + meter(s.disk, 'disk') + '<div class="up">' + s.up + '</div>') +
+        '</div>';
+    });
+    $('servers').innerHTML = html;
+    $('srv-src').textContent = 'N-able · ' + servers.length + ' von ' + TOTAL_SERVERS;
+  }
+
+  function renderIssues() {
+    $('issues').innerHTML = issues.map(function (i) {
+      return '<div class="issue ' + i.sev + '"><span class="stripe"></span>' +
+        '<div style="min-width:0"><div class="ti">' + esc(i.t) + '</div><div class="wh">' + esc(i.w) + '</div></div>' +
+        '<div class="since">seit ' + i.s + '<span>' + i.src + '</span></div></div>';
+    }).join('');
+    var c = issues.filter(function (i) { return i.sev === 'crit'; }).length;
+    $('iss-src').textContent = c + ' kritisch · ' + (issues.length - c) + ' Warnungen';
+  }
+
+  function renderSites() {
+    var html = '<div class="head"><span></span><span>Kunde</span><span class="r">Geräte</span><span class="r">Clients</span><span class="r">WAN</span></div>';
+    sites.forEach(function (s) {
+      var st = s.wan === 'off' ? 'crit' : (s.wan === 'failover' || s.on < s.tot) ? 'warn' : 'ok';
+      var wan = s.wan === 'off' ? 'offline' : s.wan === 'failover' ? 'LTE' : s.ms + ' ms';
+      html += '<div class="site ' + (st === 'crit' ? 'crit' : '') + '"><span class="dot ' + st + '"></span>' +
+        '<div style="min-width:0"><div class="name">' + esc(s.c) + '</div><div class="role">' + esc(s.g) + '</div></div>' +
+        '<div class="r ' + (s.on < s.tot ? (s.on === 0 ? 'crit' : 'warn') : '') + '">' + s.on + '/' + s.tot + '</div>' +
+        '<div class="r">' + s.cl + '</div>' +
+        '<div class="r ' + (st === 'ok' ? '' : s.wan === 'ok' ? '' : st) + '">' + wan + '</div></div>';
+    });
+    $('sites').innerHTML = html;
+    $('site-src').textContent = 'UniFi · ' + sites.length + ' Standorte';
+  }
+
+  function renderKpis() {
+    var crit = issues.filter(function (i) { return i.sev === 'crit'; }).length;
+    var warn = issues.length - crit;
+    var svc = issues.filter(function (i) { return i.svc; }).length;
+    var offline = servers.filter(function (s) { return s.off; }).length;
+    var sitesOn = sites.filter(function (s) { return s.wan !== 'off'; }).length;
+    var clients = sites.reduce(function (a, s) { return a + s.cl; }, 0);
+    var cpu = avg('cpu'), ram = avg('ram');
+    var k = [
+      { c: crit ? 'crit' : 'ok', l: 'Kritische Probleme', v: crit, n: 'sofort handeln' },
+      { c: warn ? 'warn' : 'ok', l: 'Warnungen', v: warn, n: 'beobachten' },
+      { c: svc ? 'crit' : 'ok', l: 'Gestoppte Dienste', v: svc, n: 'auf 2 Servern' },
+      { c: offline ? 'warn' : 'ok', l: 'Server online', v: (TOTAL_SERVERS - offline) + '<small> / ' + TOTAL_SERVERS + '</small>', n: offline + ' ohne Verbindung' },
+      { c: '', l: 'Ø CPU · Ø RAM', v: cpu + '<small> %</small> · ' + ram + '<small> %</small>', n: 'alle Server, aktuell' },
+      { c: sitesOn < sites.length ? 'warn' : 'ok', l: 'UniFi-Standorte online', v: sitesOn + '<small> / ' + sites.length + '</small>', n: clients + ' Clients verbunden' }
+    ];
+    $('kpis').innerHTML = k.map(function (x) {
+      return '<div class="kpi ' + x.c + '"><div class="l">' + x.l + '</div><div class="v">' + x.v + '</div><div class="n">' + x.n + '</div></div>';
+    }).join('');
+  }
+
+  /* ---------- Verlaufsdiagramm ---------- */
+  var hist = { cpu: [], ram: [] };
+  (function seed() {
+    var c0 = avg('cpu'), r0 = avg('ram'), c = c0, r = r0;
+    for (var i = 0; i < 60; i++) {           // Zufallspfad, der zum aktuellen Mittelwert zurückkehrt
+      c += (c0 - c) * 0.25 + (Math.random() - 0.5) * 3;
+      r += (r0 - r) * 0.25 + (Math.random() - 0.5) * 1.2;
+      hist.cpu.push(c); hist.ram.push(r);
+    }
+    hist.cpu[59] = c0; hist.ram[59] = r0;
+  })();
+  function renderChart() {
+    var el = $('chart'), W = Math.max(280, el.clientWidth - 12), H = Math.max(140, el.clientHeight - 10), L = 34, R = 84, T = 12, B = 26;
+    var x = function (i) { return L + (W - L - R) * i / 59; };
+    var y = function (v) { return T + (H - T - B) * (1 - v / 100); };
+    var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" role="img" aria-label="Verlauf der mittleren CPU- und RAM-Auslastung">';
+    [0, 25, 50, 75, 100].forEach(function (v) {
+      svg += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="#303030" stroke-width="1"/>' +
+             '<text x="' + (L - 6) + '" y="' + (y(v) + 4) + '" text-anchor="end" font-size="11" fill="#787878">' + v + '</text>';
+    });
+    [[0, '−60 min'], [30, '−30 min'], [59, 'jetzt']].forEach(function (t) {
+      svg += '<text x="' + x(t[0]) + '" y="' + (H - 6) + '" text-anchor="' + (t[0] === 0 ? 'start' : t[0] === 59 ? 'end' : 'middle') + '" font-size="11" fill="#787878">' + t[1] + '</text>';
+    });
+    [['ram', '#2ba5a0', 'RAM'], ['cpu', '#82acba', 'CPU']].forEach(function (s) {
+      var d = hist[s[0]], pts = d.map(function (v, i) { return x(i).toFixed(1) + ',' + y(v).toFixed(1); });
+      var last = d[59];
+      svg += '<polygon points="' + x(0) + ',' + y(0) + ' ' + pts.join(' ') + ' ' + x(59) + ',' + y(0) + '" fill="' + s[1] + '" fill-opacity="0.12"/>' +
+             '<polyline points="' + pts.join(' ') + '" fill="none" stroke="' + s[1] + '" stroke-width="2" stroke-linejoin="round"/>' +
+             '<circle cx="' + x(59) + '" cy="' + y(last) + '" r="3.5" fill="' + s[1] + '"/>' +
+             '<text x="' + (x(59) + 9) + '" y="' + (y(last) + 4) + '" font-size="12" font-weight="700" fill="' + s[1] + '">' + s[2] + ' ' + Math.round(last) + ' %</text>';
+    });
+    $('chart').innerHTML = svg + '</svg>';
+  }
+
+  /* ---------- Simulierte Live-Aktualisierung ---------- */
+  var ageN = 4, ageU = 21;
+  function tickData() {
+    servers.forEach(function (s) {
+      if (s.off) return;
+      s.cpu = Math.max(1, Math.min(99, Math.round(s.cpu0 + (Math.random() - 0.5) * 6)));
+      s.ram = Math.max(1, Math.min(99, Math.round(s.ram0 + (Math.random() - 0.5) * 2)));
+    });
+    hist.cpu.shift(); hist.cpu.push(avg('cpu'));
+    hist.ram.shift(); hist.ram.push(avg('ram'));
+    renderServers(); renderKpis(); renderChart();
+    ageN = 0;
+  }
+
+  /* ---------- Uhrzeit + Moduswechsel ---------- */
+  var mode = 'auto';
+  var fmtT = new Intl.DateTimeFormat('de-DE', { timeZone: TZ, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  var fmtD = new Intl.DateTimeFormat('de-DE', { timeZone: TZ, weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
+  function tickClock() {
+    var now = new Date(), p = {};
+    fmtT.formatToParts(now).forEach(function (x) { p[x.type] = x.value; });
+    var hm = p.hour + ':' + p.minute, date = fmtD.format(now);
+    $('hdr-time').textContent = hm; $('hdr-date').textContent = date;
+    $('clk-hm').textContent = hm; $('clk-s').textContent = p.second; $('clk-date').textContent = date;
+    var mins = (+p.hour % 24) * 60 + (+p.minute);
+    var business = mins >= START_MIN && mins < END_MIN;
+    var showClock = mode === 'clock' || (mode === 'auto' && !business);
+    $('clock').hidden = !showClock; $('dashboard').hidden = showClock;
+    if (p.second === '00') {            // Einbrennschutz: Uhr wandert minütlich leicht
+      var dx = (Math.random() - 0.5) * 6, dy = (Math.random() - 0.5) * 4;
+      $('clock-inner').style.transform = 'translate(' + dx.toFixed(1) + 'vw,' + dy.toFixed(1) + 'vh)';
+    }
+    ageN++; ageU = (ageU + 1) % 60;
+    $('age-nable').textContent = ageN; $('age-unifi').textContent = ageU;
+  }
+  document.querySelectorAll('.switch button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      mode = b.dataset.mode;
+      document.querySelectorAll('.switch button').forEach(function (o) { o.setAttribute('aria-pressed', String(o === b)); });
+      tickClock();
+    });
+  });
+
+  renderServers(); renderIssues(); renderSites(); renderKpis(); renderChart(); tickClock();
+  setInterval(tickClock, 1000);
+  setInterval(tickData, 5000);
+})();
+</script>
+</body>
+</html>
