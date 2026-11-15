@@ -1,2 +1,1 @@
-Hier die Logo-Datei ablegen: `heras-logo-weiss.svg` (weiße Variante für dunklen Hintergrund).
-Solange sie fehlt, zeigt der Prototyp einen markierten Platzhalter.
+Logo-Dateien des Prototyps (Heras, schwarz und weiß). Die produktive Oberfläche nutzt die Kopien in `web/assets/`.

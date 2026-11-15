@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>NOC-Wanddisplay</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app" id="dashboard">
+  <div class="top">
+    <div class="top-inner">
+      <img class="logo" src="assets/heras-logo-weiss.svg" alt="Heras">
+      <div>
+        <h1>Netzwerk- und Serverüberwachung</h1>
+        <div class="sub" id="sub">Gleich ITS GmbH</div>
+      </div>
+      <span class="demo" id="demo-badge" hidden>Beispieldaten</span>
+      <div class="spacer"></div>
+      <div class="feeds" id="feeds"></div>
+      <div class="now"><div class="t" id="hdr-time">--:--</div><div class="d" id="hdr-date"></div></div>
+    </div>
+    <div class="brandbar"></div>
+  </div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="main">
+    <div class="col">
+      <section class="panel">
+        <header><h2>Server nach Dringlichkeit</h2><span class="src" id="srv-src"></span></header>
+        <div class="body" id="servers-body"><div class="rows" id="servers"></div></div>
+      </section>
+    </div>
+    <div class="col mid">
+      <section class="panel">
+        <header><h2>Aktive Probleme</h2><span class="src" id="iss-src"></span></header>
+        <div class="body" id="issues-body"><div class="issues" id="issues"></div></div>
+      </section>
+      <section class="panel">
+        <header><h2>Auslastung aller Server</h2><span class="src" id="chart-src">Mittelwert in %</span></header>
+        <div class="body"><div class="chart" id="chart"></div></div>
+      </section>
+    </div>
+    <div class="col">
+      <section class="panel">
+        <header><h2>Kundenstandorte</h2><span class="src" id="site-src"></span></header>
+        <div class="body" id="sites-body"><div class="sites" id="sites"></div></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<div class="clock" id="clock" hidden>
+  <div class="clock-inner" id="clock-inner">
+    <img class="logo" src="assets/heras-logo-weiss.svg" alt="Heras">
+    <div class="rule"></div>
+    <div class="time"><span id="clk-hm">--:--</span><span class="sec" id="clk-s">--</span></div>
+    <div class="date" id="clk-date"></div>
+    <div class="hint" id="clk-hint"></div>
+  </div>
+</div>
+
+<div class="alert" id="alert" hidden>Neues kritisches Problem</div>
+<div class="backend-down" id="backend-down" hidden>Keine Verbindung zum Dashboard-Dienst – Anzeige veraltet</div>
+
+<div class="switch" id="switch" role="group" aria-label="Vorschau-Modus" hidden>
+  <span>Vorschau</span>
+  <button type="button" data-mode="auto" aria-pressed="true">Automatisch</button>
+  <button type="button" data-mode="dash" aria-pressed="false">Dashboard</button>
+  <button type="button" data-mode="clock" aria-pressed="false">Uhr</button>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

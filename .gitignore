@@ -1,0 +1,4 @@
+# Zugangsdaten nie einchecken
+config/config.env
+__pycache__/
+*.pyc

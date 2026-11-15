@@ -1,0 +1,22 @@
+[Unit]
+Description=NOC-Wanddisplay Backend (N-able, N-central, UniFi)
+Wants=network-online.target
+After=network-online.target time-sync.target
+
+[Service]
+Type=simple
+User=noc
+Group=noc
+SupplementaryGroups=audio
+WorkingDirectory=/opt/noc-dashboard/app
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 /opt/noc-dashboard/app/server.py --config /etc/noc-dashboard/config.env
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
