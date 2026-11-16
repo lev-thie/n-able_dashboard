@@ -157,11 +157,19 @@ systemctl restart noc-kiosk.service || true
 systemctl start noc-kiosk-restart.timer
 
 say "Prüfe Backend"
-for i in $(seq 20); do
-  if curl -sf http://127.0.0.1:8080/healthz >/dev/null; then echo "Backend antwortet."; break; fi
+BACKEND_OK=0
+for i in $(seq 30); do
+  if curl -sf http://127.0.0.1:8080/healthz >/dev/null; then BACKEND_OK=1; echo "Backend antwortet."; break; fi
   sleep 1
 done
-curl -sf http://127.0.0.1:8080/api/status | python3 -c 'import json,sys; d=json.load(sys.stdin); print("Demo-Modus" if d["demo"] else "Echtdaten", "|", {k:("ok" if v["ok"] else (v["error"] or "wartet")) for k,v in d["sources"].items() if v["enabled"]})' || true
+if [ "$BACKEND_OK" -eq 1 ]; then
+  curl -sf http://127.0.0.1:8080/api/status | python3 -c 'import json,sys; d=json.load(sys.stdin); print("Demo-Modus" if d["demo"] else "Echtdaten", "|", {k:("ok" if v["ok"] else (v["error"] or "wartet")) for k,v in d["sources"].items() if v["enabled"]})' || true
+else
+  echo "FEHLER: Backend antwortet nicht auf Port 8080. Letzte Log-Zeilen:"
+  journalctl -u noc-dashboard -n 25 --no-pager || true
+  echo "Belegt ein anderes Programm Port 8080?"
+  ss -ltnp 2>/dev/null | grep ':8080 ' || echo "  (nein, Port 8080 ist frei)"
+fi
 
 cat <<EOF
 
