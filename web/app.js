@@ -72,7 +72,7 @@
       var dot = s.state === 'off' ? 'crit' : s.state;
       return '<div class="row ' + (s.state === 'crit' || s.state === 'off' ? 'crit' : '') + (s.state === 'off' ? ' off' : '') + '">' +
         '<span class="dot ' + dot + '"></span>' +
-        '<div style="min-width:0"><div class="name">' + esc(s.name) + tags + '</div><div class="subl">' + esc(s.customer || s.role) + '</div></div>' +
+        '<div style="min-width:0"><div class="name">' + esc(s.name) + '</div><div class="subl">' + tags + esc(s.customer || s.role) + '</div></div>' +
         (s.online
           ? meter(s.cpu, 75, 90) + meter(s.ram, 80, 90) + meter(s.disk, 85, 95)
           : '<div class="offline-note">Agent offline' + (s.offlineSince ? ' seit ' + sinceText(s.offlineSince) : '') + '</div>') +
