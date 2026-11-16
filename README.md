@@ -33,6 +33,8 @@ Zusätzlich startet ein Timer den Browser jede Nacht um 03:15 neu; die Seite lä
 | N-central REST (optional) | Aktive Probleme je Kunde, daraus die gestoppten Dienste | User-API-Token (JWT) → `/api/auth/authenticate` |
 | UniFi Site Manager (`api.ui.com/v1`) | Standorte, Geräte online/gesamt, Clients, WAN-Uptime, Provider, Gateway offline | API-Schlüssel im Header `X-API-Key` |
 
+**Gerätefilter:** Mit `NCENTRAL_DEVICE_FILTER=DASHBOARD EXTERN PROJEKT` zeigt das Dashboard nur die Geräte aus diesem N-central-Filter, egal ob Server oder Arbeitsplatz. Die Geräteliste kommt aus N-central (`/api/devices?filterId=…`). Die Messwerte für CPU, RAM und Datenträger kommen aus N-able und werden über die N-central-Geräte-ID oder den Gerätenamen zugeordnet. Probleme liefert dann der Status jeder Überwachung des Geräts (`/api/devices/{id}/service-monitor-status`): „Failed“ gilt als kritisch, „Warning“ und „Misconfigured“ als Warnung. Ist der Filter leer, zeigt das Dashboard alle Server aus N-able.
+
 Gestoppte Dienste und Alarme bietet die N-able GraphQL-API nicht an. Sie kommen deshalb aus der N-central-REST-Schnittstelle (Endpunkt „active issues“, laut N-able noch im Preview-Status).
 
 ## Raspberry Pi einrichten

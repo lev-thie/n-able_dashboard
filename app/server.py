@@ -92,6 +92,11 @@ class Config:
         self.nc_interval_s = env_int("NCENTRAL_INTERVAL", 120)
         self.nc_crit_states = {s.strip() for s in env("NCENTRAL_CRITICAL_STATES", "5").split(",") if s.strip()}
         self.nc_service_re = re.compile(env("NCENTRAL_SERVICE_PATTERN", r"(?i)service|dienst"))
+        # Nur Geräte aus diesem N-central-Filter anzeigen (Name oder ID). Leer = alle Server.
+        self.nc_filter = env("NCENTRAL_DEVICE_FILTER")
+        # Status der Überwachungsdienste (N-central „stateStatus“) → kritisch / Warnung, Rest ignoriert
+        self.nc_crit_status = {s.strip().lower() for s in env("NCENTRAL_CRITICAL_STATUS", "Failed").split(",") if s.strip()}
+        self.nc_warn_status = {s.strip().lower() for s in env("NCENTRAL_WARNING_STATUS", "Warning,Misconfigured").split(",") if s.strip()}
 
         self.unifi_key = env("UNIFI_API_KEY")
         self.unifi_url = env("UNIFI_API_URL", "https://api.ui.com").rstrip("/")
@@ -216,13 +221,14 @@ class NableClient:
             log.warning("N-able GraphQL Teilfehler: %s", res["errors"][:3])
         return res.get("data") or {}
 
-    def servers(self) -> list[dict]:
+    def servers(self, only_servers: bool = True) -> list[dict]:
+        """Bestand aus N-able. Mit only_servers=False alle Geräte (Abgleich mit N-central-Filter)."""
         out, after = [], None
         while True:
             d = self._gql(INVENTORY_QUERY, {"first": 100, "after": after, "orgs": self.cfg.nable_orgs or None})
             conn = d["assetSearch"]
             for a in conn["nodes"]:
-                if ((a.get("operatingSystemInfo") or {}).get("role") or "") == "SERVER":
+                if not only_servers or ((a.get("operatingSystemInfo") or {}).get("role") or "") == "SERVER":
                     out.append(a)
             if not conn["pageInfo"]["hasNextPage"]:
                 return out
@@ -275,10 +281,10 @@ class NcentralClient:
             url += "?" + urllib.parse.urlencode(params)
         return http_json(url, headers={"Authorization": f"Bearer {self._token()}"})
 
-    def _paged(self, path: str) -> list[dict]:
+    def _paged(self, path: str, extra: dict | None = None) -> list[dict]:
         items, page = [], 1
         while True:
-            res = self._get(path, {"pageNumber": page, "pageSize": 500})
+            res = self._get(path, {"pageNumber": page, "pageSize": 500, **(extra or {})})
             items += res.get("data") or []
             total_pages = res.get("totalPages")
             if total_pages is None:
@@ -306,10 +312,79 @@ class NcentralClient:
                     "device": extra.get("deviceName") or str(it.get("deviceId")),
                     "customer": tree[-1] if tree else (c.get("customerName") or ""),
                     "service": it.get("serviceName") or "Unbekannter Dienst",
-                    "state": st,
+                    "sev": "crit" if st in self.cfg.nc_crit_states else "warn",
                     "taskId": it.get("taskId"),
+                    "since": None,
                 })
         return issues
+
+    # ---- Gerätefilter (z. B. „DASHBOARD EXTERN PROJEKT“)
+    def filter_id(self) -> str:
+        wanted = self.cfg.nc_filter.strip()
+        if wanted.isdigit():
+            return wanted
+        filters = self._paged("/api/device-filters")
+        for f in filters:
+            if (f.get("filterName") or "").strip().casefold() == wanted.casefold():
+                return str(f["filterId"])
+        names = ", ".join(sorted(f.get("filterName") or "?" for f in filters))[:400]
+        raise RuntimeError(f'N-central-Filter "{wanted}" nicht gefunden. Vorhanden: {names}')
+
+    def filter_devices(self) -> list[dict]:
+        return self._paged("/api/devices", {"filterId": self.filter_id()})
+
+    def device_issues(self, devices: list[dict]) -> list[dict]:
+        """Status aller Überwachungsdienste je Gerät; nur auffällige werden zu Problemen."""
+        cfg, issues = self.cfg, []
+        for d in devices:
+            dev_id = str(d.get("deviceId"))
+            try:
+                rows = self._get(f"/api/devices/{dev_id}/service-monitor-status").get("data") or []
+            except RuntimeError as e:
+                log.warning("Dienststatus für Gerät %s nicht abrufbar: %s", dev_id, e)
+                continue
+            for r in rows:
+                st = (r.get("stateStatus") or "").strip()
+                if st and st not in self.states_seen:
+                    self.states_seen.add(st)
+                    log.info("N-central stateStatus gesehen: %s (z. B. %s)", st, r.get("moduleName"))
+                key = st.lower()
+                sev = "crit" if key in cfg.nc_crit_status else "warn" if key in cfg.nc_warn_status else None
+                if not sev:
+                    continue
+                issues.append({
+                    "deviceId": dev_id,
+                    "device": d.get("longName") or d.get("discoveredName") or dev_id,
+                    "customer": d.get("customerName") or d.get("siteName") or "",
+                    "service": r.get("moduleName") or "Unbekannter Dienst",
+                    "sev": sev,
+                    "taskId": r.get("taskId"),
+                    "since": self._nc_time(r.get("transitionTime")),
+                })
+        return issues
+
+    def _nc_time(self, s: str | None) -> str | None:
+        return nc_time(s, self.cfg.tz)
+
+
+def nc_time(s: str | None, tz) -> str | None:
+    """N-central liefert z. B. '2024-02-28 15:40:42.407' (Serverzeit, ohne Zone), mit Offset oder ISO."""
+    if not s:
+        return None
+    s = str(s).strip()
+    dt = parse_dt(s)
+    if dt is None:
+        for fmt in ("%Y-%m-%d %H:%M:%S.%f %z", "%Y-%m-%d %H:%M:%S %z", "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S"):
+            try:
+                dt = datetime.strptime(s, fmt)
+                break
+            except ValueError:
+                continue
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=tz)
+    return dt.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 # --------------------------------------------------------------------------- UniFi Site Manager
@@ -423,6 +498,7 @@ class Hub:
         self.inventory_at = 0.0
         self.metrics: dict[str, dict] = {}
         self.nc_issues: list[dict] = []
+        self.nc_devices: list[dict] | None = None   # nur bei NCENTRAL_DEVICE_FILTER
         self.sites: list[dict] = []
         self.first_seen: dict[str, str] = {}
         self.history: dict[str, list] = {"t": [], "cpu": [], "ram": []}
@@ -433,18 +509,47 @@ class Hub:
     # ---- Pollers
     def poll_nable(self, client: NableClient) -> None:
         if time.time() - self.inventory_at > self.cfg.nable_inventory_s or not self.inventory:
-            inv = client.servers()
+            inv = client.servers(only_servers=not self.cfg.nc_filter)
             with self.lock:
                 self.inventory, self.inventory_at = inv, time.time()
-            log.info("N-able: %d Server im Bestand", len(inv))
-        m = client.metrics([a["id"] for a in self.inventory])
+            log.info("N-able: %d %s im Bestand", len(inv), "Geräte" if self.cfg.nc_filter else "Server")
+        if self.cfg.nc_filter:
+            with self.lock:
+                ids = [a["id"] for a in self._matched_assets().values()]
+        else:
+            ids = [a["id"] for a in self.inventory]
+        m = client.metrics(ids) if ids else {}
         with self.lock:
             self.metrics = m
 
     def poll_ncentral(self, client: NcentralClient) -> None:
-        issues = client.active_issues()
+        if self.cfg.nc_filter:
+            devices = client.filter_devices()
+            if self.nc_devices is None:
+                log.info('N-central-Filter "%s": %d Geräte', self.cfg.nc_filter, len(devices))
+            with self.lock:
+                self.nc_devices = devices
+            issues = client.device_issues(devices)
+        else:
+            issues = client.active_issues()
         with self.lock:
             self.nc_issues = issues
+
+    def _matched_assets(self) -> dict[str, dict]:
+        """N-central-Gerät (deviceId) → N-able-Asset, über die verknüpfte Geräte-ID oder den Namen."""
+        if not self.nc_devices:
+            return {}
+        by_id = {str((a.get("ncentralDevice") or {}).get("deviceId")): a for a in self.inventory
+                 if (a.get("ncentralDevice") or {}).get("deviceId")}
+        by_name = {(a.get("name") or "").casefold(): a for a in self.inventory}
+        out = {}
+        for d in self.nc_devices:
+            dev_id = str(d.get("deviceId"))
+            a = by_id.get(dev_id) or by_name.get((d.get("longName") or "").casefold()) \
+                or by_name.get((d.get("discoveredName") or "").casefold())
+            if a:
+                out[dev_id] = a
+        return out
 
     def poll_unifi(self, client: UnifiClient) -> None:
         sites = client.sites()
@@ -455,45 +560,63 @@ class Hub:
     def _servers(self) -> list[dict]:
         cfg, now = self.cfg, datetime.now(timezone.utc)
         svc_by_dev: dict[str, list[dict]] = {}
+        worst_by_dev: dict[str, str] = {}
         for it in self.nc_issues:
             if cfg.nc_service_re.search(it["service"]):
                 svc_by_dev.setdefault(it["deviceId"], []).append(it)
-        out = []
-        for a in self.inventory:
-            m = self.metrics.get(a["id"]) or {}
+            if worst_by_dev.get(it["deviceId"]) != "crit":
+                worst_by_dev[it["deviceId"]] = it["sev"]
+
+        def entry(a: dict | None, dev_id: str, nc: dict | None) -> dict:
+            a = a or {}
+            m = self.metrics.get(a.get("id")) or {}
             conn = m.get("agentConnection") or {}
-            online = conn.get("status") != "DISCONNECTED"
+            if conn.get("status"):
+                online = conn["status"] != "DISCONNECTED"
+                offline_since = conn.get("statusChangedAt")
+            else:                                   # ohne N-able-Daten: letzter Check-in laut N-central
+                seen = parse_dt(nc_time((nc or {}).get("lastApplianceCheckinTime"), cfg.tz))
+                online = seen is None or (now - seen).total_seconds() < 1800
+                offline_since = seen.isoformat() if seen and not online else None
             drives = [d for d in m.get("logicalDrives") or [] if (d.get("totalSizeBytes") or 0) > 2**30]
             disk = max((round(100 * (1 - int(d.get("freeSpaceBytes") or 0) / int(d["totalSizeBytes"])))
                         for d in drives), default=None)
             disk_drive = max(drives, key=lambda d: 1 - int(d.get("freeSpaceBytes") or 0) / int(d["totalSizeBytes"]),
                              default={}).get("driveId")
             boot = parse_dt(m.get("lastBootedAt"))
-            dev_id = str((a.get("ncentralDevice") or {}).get("deviceId") or "")
-            out.append({
-                "id": a["id"], "name": a.get("name") or "?",
-                "role": a.get("description") or (a.get("operatingSystemInfo") or {}).get("name") or "",
-                "customer": (a.get("customer") or {}).get("name") or (a.get("site") or {}).get("name") or "",
-                "online": online, "offlineSince": conn.get("statusChangedAt") if not online else None,
+            nc = nc or {}
+            return {
+                "id": a.get("id") or f"nc:{dev_id}",
+                "name": nc.get("longName") or a.get("name") or "?",
+                "role": a.get("description") or nc.get("deviceClassLabel") or (a.get("operatingSystemInfo") or {}).get("name") or "",
+                "customer": nc.get("customerName") or (a.get("customer") or {}).get("name") or (a.get("site") or {}).get("name") or "",
+                "online": online,
+                "offlineSince": offline_since if not online else None,
                 "cpu": last_value((m.get("metrics") or {}).get("cpu")),
                 "ram": last_value((m.get("metrics") or {}).get("memory")),
                 "disk": disk, "diskDrive": disk_drive,
                 "uptimeSec": int((now - boot).total_seconds()) if boot else None,
                 "rebootRequired": bool((m.get("reboot") or {}).get("isRequired")),
                 "stoppedServices": [i["service"] for i in svc_by_dev.get(dev_id, [])],
-                "stoppedCritical": any(i["state"] in cfg.nc_crit_states for i in svc_by_dev.get(dev_id, [])),
-            })
-        return out
+                "stoppedCritical": any(i["sev"] == "crit" for i in svc_by_dev.get(dev_id, [])),
+                "monitorSev": worst_by_dev.get(dev_id),   # schlimmster N-central-Status des Geräts
+            }
+
+        if cfg.nc_filter:                           # Nur Geräte aus dem N-central-Filter
+            matched = self._matched_assets()
+            return [entry(matched.get(str(d.get("deviceId"))), str(d.get("deviceId")), d)
+                    for d in self.nc_devices or []]
+        return [entry(a, str((a.get("ncentralDevice") or {}).get("deviceId") or ""), None) for a in self.inventory]
 
     def _server_state(self, s: dict) -> str:
         c = self.cfg
         if not s["online"]:
             return "off"
         if ((s["cpu"] or 0) >= c.cpu_crit or (s["ram"] or 0) >= c.ram_crit or (s["disk"] or 0) >= c.disk_crit
-                or s["stoppedCritical"]):
+                or s["stoppedCritical"] or s.get("monitorSev") == "crit"):
             return "crit"
         if ((s["cpu"] or 0) >= c.cpu_warn or (s["ram"] or 0) >= c.ram_warn or (s["disk"] or 0) >= c.disk_warn
-                or s["stoppedServices"] or s["rebootRequired"]):
+                or s["stoppedServices"] or s["rebootRequired"] or s.get("monitorSev") == "warn"):
             return "warn"
         return "ok"
 
@@ -521,10 +644,9 @@ class Hub:
 
         for it in self.nc_issues:
             svc = bool(c.nc_service_re.search(it["service"]))
-            sev = "crit" if it["state"] in c.nc_crit_states else "warn"
             title = ("Dienst gestoppt: " if svc else "") + it["service"]
-            add(f'nc:{it["deviceId"]}:{it["taskId"] or it["service"]}', sev, title,
-                f'{it["device"]} · {it["customer"]}'.strip(" ·"), "N-central", service=svc)
+            add(f'nc:{it["deviceId"]}:{it["taskId"] or it["service"]}', it["sev"], title,
+                f'{it["device"]} · {it["customer"]}'.strip(" ·"), "N-central", it.get("since"), service=svc)
 
         for st in sites:
             if st["wan"] == "off":
@@ -578,7 +700,7 @@ class Hub:
                     self.last_alarm = played
 
             self.snapshot = {
-                "generatedAt": iso_now(), "demo": False,
+                "generatedAt": iso_now(), "demo": False, "deviceFilter": self.cfg.nc_filter,
                 "display": {"start": self.cfg.display_start, "end": self.cfg.display_end,
                             "days": self.cfg.display_days, "timezone": str(self.cfg.tz),
                             "scale": self.cfg.ui_scale},
@@ -652,6 +774,12 @@ def main() -> None:
     cfg = Config()
     if args.demo:
         cfg.demo = True
+
+    if cfg.nc_filter and not (cfg.nc_server and cfg.nc_jwt) and not cfg.demo:
+        log.warning('NCENTRAL_DEVICE_FILTER="%s" ist gesetzt, aber N-central ist nicht konfiguriert '
+                    "(NCENTRAL_SERVER/NCENTRAL_JWT fehlen) – Filter wird ignoriert, es werden alle Server angezeigt.",
+                    cfg.nc_filter)
+        cfg.nc_filter = ""
 
     if args.test_sound:
         ok = Alarm(cfg).play("Test")

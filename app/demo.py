@@ -133,7 +133,7 @@ class Simulator:
             at = now.isoformat(timespec="seconds").replace("+00:00", "Z")
             src = {"enabled": True, "ok": True, "at": at, "error": None}
             return {
-                "generatedAt": at, "demo": True,
+                "generatedAt": at, "demo": True, "deviceFilter": self.cfg.nc_filter,
                 "display": {"start": self.cfg.display_start, "end": self.cfg.display_end,
                             "days": self.cfg.display_days, "timezone": str(self.cfg.tz),
                             "scale": self.cfg.ui_scale},

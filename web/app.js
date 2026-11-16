@@ -53,7 +53,8 @@
 
   /* ---------- Rendern ---------- */
   function renderServers(d) {
-    var head = '<div class="srv-head head"><span></span><span>Server · Kunde</span><span>CPU</span><span>RAM</span><span>Datenträger</span></div>';
+    $('srv-title').textContent = d.deviceFilter ? 'Geräte nach Dringlichkeit' : 'Server nach Dringlichkeit';
+    var head = '<div class="srv-head head"><span></span><span>' + (d.deviceFilter ? 'Gerät' : 'Server') + ' · Kunde</span><span>CPU</span><span>RAM</span><span>Datenträger</span></div>';
     if (!d.servers.length) {
       $('servers').innerHTML = head + '<div class="empty">' + (d.sources.nable.enabled ? 'Noch keine Serverdaten von N-able.' : 'N-able ist nicht konfiguriert.') + '</div>';
       $('srv-src').textContent = '';
@@ -78,7 +79,7 @@
           : '<div class="offline-note">Agent offline' + (s.offlineSince ? ' seit ' + sinceText(s.offlineSince) : '') + '</div>') +
         '</div>';
     }).join('');
-    $('srv-src').innerHTML = d.servers.length + ' Server' + pagerText(pg);
+    $('srv-src').innerHTML = (d.deviceFilter ? esc(d.deviceFilter) + ' · ' + d.servers.length + ' Geräte' : d.servers.length + ' Server') + pagerText(pg);
   }
 
   function renderIssues(d) {
@@ -130,7 +131,7 @@
       { c: warn ? 'warn' : 'ok', l: 'Warnungen', v: warn, n: warn ? 'beobachten' : 'keine' },
       { c: s.stoppedServices ? 'crit' : 'ok', l: 'Dienste gestoppt', v: s.stoppedServices,
         n: s.stoppedServices ? 'auf ' + s.serversWithStoppedServices + ' Server' + (s.serversWithStoppedServices > 1 ? 'n' : '') : (d.sources.ncentral.enabled || d.demo ? 'alle laufen' : 'N-central fehlt') },
-      { c: off ? 'warn' : 'ok', l: 'Server online', v: s.serversOnline + '<small>/' + s.serversTotal + '</small>', n: off ? off + ' ohne Verbindung' : 'alle verbunden' },
+      { c: off ? 'warn' : 'ok', l: d.deviceFilter ? 'Geräte online' : 'Server online', v: s.serversOnline + '<small>/' + s.serversTotal + '</small>', n: off ? off + ' ohne Verbindung' : 'alle verbunden' },
       { c: '', l: 'Ø CPU · RAM', v: (s.cpuAvg == null ? '–' : s.cpuAvg) + '<small>%</small> ' + (s.ramAvg == null ? '–' : s.ramAvg) + '<small>%</small>', n: 'alle Server' },
       { c: s.sitesOnline < s.sitesTotal ? 'warn' : 'ok', l: 'Standorte online', v: s.sitesOnline + '<small>/' + s.sitesTotal + '</small>', n: s.clients + ' Clients' }
     ];
