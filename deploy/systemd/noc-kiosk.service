@@ -22,7 +22,7 @@ UtmpIdentifier=tty1
 UtmpMode=user
 Environment=XDG_SESSION_TYPE=wayland
 # Warten, bis das Backend antwortet (max. 60 s), dann Chromium starten
-ExecStartPre=/bin/sh -c 'for i in $(seq 60); do curl -sf http://127.0.0.1:8080/healthz >/dev/null && exit 0; sleep 1; done; exit 0'
+ExecStartPre=/bin/sh -c 'P=$(cat /opt/noc-dashboard/port 2>/dev/null || echo 8765); for i in $(seq 60); do curl -sf http://127.0.0.1:$P/healthz >/dev/null && exit 0; sleep 1; done; exit 0'
 ExecStart=/opt/noc-dashboard/deploy/kiosk-start.sh
 Restart=always
 RestartSec=3

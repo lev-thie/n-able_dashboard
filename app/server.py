@@ -68,7 +68,7 @@ def env_bool(name: str, default: bool) -> bool:
 
 class Config:
     def __init__(self) -> None:
-        self.port = env_int("PORT", 8080)
+        self.port = env_int("PORT", 8765)
         self.bind = env("BIND", "127.0.0.1")
         self.tz = ZoneInfo(env("TIMEZONE", "Europe/Berlin"))
         self.display_start = env("DISPLAY_START", "07:30")

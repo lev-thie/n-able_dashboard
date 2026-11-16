@@ -3,7 +3,8 @@
 # Wird von noc-kiosk.service als Benutzer "kiosk" auf tty1 ausgeführt.
 set -eu
 
-URL="http://127.0.0.1:8080/?kiosk=1"
+PORT="$(cat /opt/noc-dashboard/port 2>/dev/null || echo 8765)"
+URL="http://127.0.0.1:${PORT}/?kiosk=1"
 BROWSER="$(command -v chromium || command -v chromium-browser)"
 PROFILE="${HOME:-/var/lib/noc-kiosk}/chromium"
 

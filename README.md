@@ -20,7 +20,7 @@ Auf dem Pi laufen zwei Dienste:
 
 | Dienst | Aufgabe |
 |---|---|
-| `noc-dashboard` | Backend auf `127.0.0.1:8080`, Benutzer `noc` |
+| `noc-dashboard` | Backend auf `127.0.0.1:8765` (Port über `PORT` einstellbar), Benutzer `noc` |
 | `noc-kiosk` | Chromium im Vollbild über den Wayland-Kiosk-Compositor `cage` auf tty1, Benutzer `kiosk`, startet automatisch beim Booten |
 
 Zusätzlich startet ein Timer den Browser jede Nacht um 03:15 neu; die Seite lädt sich außerdem alle 6 Stunden neu.
@@ -110,5 +110,5 @@ aplay -L                                       # Audioausgänge auflisten (für 
 
 ```bash
 cd app && python3 server.py --demo --config /dev/null
-# Browser: http://127.0.0.1:8080/?preview=1  (Umschalter Dashboard/Uhr unten rechts)
+# Browser: http://127.0.0.1:8765/?preview=1  (Umschalter Dashboard/Uhr unten rechts)
 ```

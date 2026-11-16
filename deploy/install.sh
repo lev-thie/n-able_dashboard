@@ -118,6 +118,17 @@ else
   echo "Vorhandene $CONF_DIR/config.env bleibt unverändert."
 fi
 
+# Port für Kiosk und Prüfung aus der Konfiguration übernehmen
+PORT="$(sed -n 's/^[[:space:]]*PORT[[:space:]]*=[[:space:]]*\([0-9]\{2,5\}\).*/\1/p' "$CONF_DIR/config.env" | tail -n1)"
+PORT="${PORT:-8765}"
+echo "$PORT" > "$DEST/port"
+chmod 644 "$DEST/port"
+if ss -ltnH "sport = :$PORT" 2>/dev/null | grep -q . && ! systemctl is-active --quiet noc-dashboard; then
+  echo "WARNUNG: Port $PORT ist bereits von einem anderen Programm belegt:"
+  ss -ltnp "sport = :$PORT" 2>/dev/null || true
+  echo "Bitte in $CONF_DIR/config.env einen freien PORT eintragen und install.sh erneut ausführen."
+fi
+
 # --------------------------------------------------------------------------- Dienste
 say "Richte systemd-Dienste und Kiosk-Autostart ein"
 cat > /etc/pam.d/noc-kiosk <<'EOF'
@@ -159,16 +170,16 @@ systemctl start noc-kiosk-restart.timer
 say "Prüfe Backend"
 BACKEND_OK=0
 for i in $(seq 30); do
-  if curl -sf http://127.0.0.1:8080/healthz >/dev/null; then BACKEND_OK=1; echo "Backend antwortet."; break; fi
+  if curl -sf "http://127.0.0.1:$PORT/healthz" >/dev/null; then BACKEND_OK=1; echo "Backend antwortet."; break; fi
   sleep 1
 done
 if [ "$BACKEND_OK" -eq 1 ]; then
-  curl -sf http://127.0.0.1:8080/api/status | python3 -c 'import json,sys; d=json.load(sys.stdin); print("Demo-Modus" if d["demo"] else "Echtdaten", "|", {k:("ok" if v["ok"] else (v["error"] or "wartet")) for k,v in d["sources"].items() if v["enabled"]})' || true
+  curl -sf "http://127.0.0.1:$PORT/api/status" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("Demo-Modus" if d["demo"] else "Echtdaten", "|", {k:("ok" if v["ok"] else (v["error"] or "wartet")) for k,v in d["sources"].items() if v["enabled"]})' || true
 else
-  echo "FEHLER: Backend antwortet nicht auf Port 8080. Letzte Log-Zeilen:"
+  echo "FEHLER: Backend antwortet nicht auf Port $PORT. Letzte Log-Zeilen:"
   journalctl -u noc-dashboard -n 25 --no-pager || true
-  echo "Belegt ein anderes Programm Port 8080?"
-  ss -ltnp 2>/dev/null | grep ':8080 ' || echo "  (nein, Port 8080 ist frei)"
+  echo "Belegt ein anderes Programm Port $PORT?"
+  ss -ltnp "sport = :$PORT" 2>/dev/null | grep -v '^State' || echo "  (nein, Port $PORT ist frei)"
 fi
 
 cat <<EOF
