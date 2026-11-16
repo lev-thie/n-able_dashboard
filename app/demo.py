@@ -135,7 +135,8 @@ class Simulator:
             return {
                 "generatedAt": at, "demo": True,
                 "display": {"start": self.cfg.display_start, "end": self.cfg.display_end,
-                            "days": self.cfg.display_days, "timezone": str(self.cfg.tz)},
+                            "days": self.cfg.display_days, "timezone": str(self.cfg.tz),
+                            "scale": self.cfg.ui_scale},
                 "sources": {"nable": src, "ncentral": src, "unifi": src},
                 "servers": servers, "sites": sites, "issues": issues,
                 "summary": {"serversTotal": len(servers), "serversOnline": len(live), "cpuAvg": cpu, "ramAvg": ram,

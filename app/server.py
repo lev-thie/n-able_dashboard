@@ -74,6 +74,10 @@ class Config:
         self.display_start = env("DISPLAY_START", "07:30")
         self.display_end = env("DISPLAY_END", "17:00")
         self.display_days = [int(d) for d in env("DISPLAY_DAYS", "1,2,3,4,5,6,7").split(",") if d.strip()]
+        try:
+            self.ui_scale = max(0.5, min(2.5, float(env("UI_SCALE", "1").replace(",", "."))))
+        except ValueError:
+            self.ui_scale = 1.0
 
         self.nable_url = env("NABLE_GRAPHQL_URL", "https://api.n-able.com/graphql")
         self.nable_token = env("NABLE_API_TOKEN")
@@ -576,7 +580,8 @@ class Hub:
             self.snapshot = {
                 "generatedAt": iso_now(), "demo": False,
                 "display": {"start": self.cfg.display_start, "end": self.cfg.display_end,
-                            "days": self.cfg.display_days, "timezone": str(self.cfg.tz)},
+                            "days": self.cfg.display_days, "timezone": str(self.cfg.tz),
+                            "scale": self.cfg.ui_scale},
                 "sources": {k: v.as_dict() for k, v in self.src.items()},
                 "servers": servers, "sites": sites, "issues": issues,
                 "summary": {"serversTotal": len(servers), "serversOnline": len(live),
