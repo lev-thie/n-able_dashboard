@@ -111,6 +111,8 @@ class Config:
         self.sound_only_display = env_bool("ALARM_ONLY_DURING_DISPLAY", True)
         self.sound_cooldown_s = env_int("ALARM_COOLDOWN", 60)
         self.sound_repeat_min = env_int("ALARM_REPEAT_MINUTES", 0)
+        # Stille vor dem Alarmton (ms), damit HDMI-Bildschirme den Anfang nicht verschlucken
+        self.sound_lead_ms = env_int("ALARM_LEAD_SILENCE_MS", 1500)
 
         self.demo = env_bool("DEMO_MODE", False) or not (self.nable_token or self.unifi_key or self.nc_jwt)
 
@@ -445,7 +447,37 @@ class Alarm:
         self.last_reminder = time.time()
         self.lock = threading.Lock()
 
-    def play(self, reason: str) -> bool:
+    def _padded_wav(self) -> bytes | None:
+        """WAV mit vorangestellter Stille. HDMI-Bildschirme schalten den Ton erst ein, wenn Daten
+        ankommen, und verschlucken dabei den Anfang („Achtung Störung“ → „…rung“)."""
+        lead_ms = self.cfg.sound_lead_ms
+        if lead_ms <= 0:
+            return None
+        path = self.cfg.sound_file
+        key = (str(path), path.stat().st_mtime, lead_ms)
+        if getattr(self, "_pad_key", None) == key:
+            return self._pad_data
+        import io
+        import wave
+        try:
+            with wave.open(str(path), "rb") as src:
+                params = src.getparams()
+                frames = src.readframes(src.getnframes())
+        except (wave.Error, EOFError) as e:      # z. B. komprimiertes WAV – dann unverändert abspielen
+            log.warning("Alarmton kann nicht mit Vorlauf versehen werden (%s), spiele ohne", e)
+            return None
+        silence_frames = int(params.framerate * lead_ms / 1000)
+        silence = (b"\x80" if params.sampwidth == 1 else b"\x00") * (silence_frames * params.sampwidth * params.nchannels)
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as dst:
+            dst.setnchannels(params.nchannels)
+            dst.setsampwidth(params.sampwidth)
+            dst.setframerate(params.framerate)
+            dst.writeframes(silence + frames)
+        self._pad_key, self._pad_data = key, buf.getvalue()
+        return self._pad_data
+
+    def play(self, reason: str, wait: bool = False) -> bool:
         if not self.cfg.sound_file.is_file():
             log.warning("Alarmton fehlt: %s", self.cfg.sound_file)
             return False
@@ -456,9 +488,22 @@ class Alarm:
         cmd = [player, "-q"]
         if self.cfg.sound_device:
             cmd += ["-D", self.cfg.sound_device]
-        cmd.append(str(self.cfg.sound_file))
+        data = self._padded_wav()
+        if data is None:
+            cmd.append(str(self.cfg.sound_file))
         log.info("Alarmton: %s", reason)
-        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        proc = subprocess.Popen(cmd, stdin=subprocess.PIPE if data else subprocess.DEVNULL,
+                                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+
+        def finish() -> None:
+            _, err = proc.communicate(data)       # data=None → wartet nur auf das Ende
+            if proc.returncode:
+                log.warning("aplay meldet Fehler (%s): %s", proc.returncode, (err or b"").decode(errors="replace").strip()[:200])
+
+        if wait:
+            finish()
+        else:
+            threading.Thread(target=finish, daemon=True).start()
         self.last_play = time.time()
         return True
 
@@ -782,8 +827,7 @@ def main() -> None:
         cfg.nc_filter = ""
 
     if args.test_sound:
-        ok = Alarm(cfg).play("Test")
-        time.sleep(0.2)
+        ok = Alarm(cfg).play("Test", wait=True)
         raise SystemExit(0 if ok else 1)
 
     if cfg.demo:
